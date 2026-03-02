@@ -7,7 +7,7 @@ namespace CalculatorApp
 {
     public class TaskManager
     {
-        private List<TodoTask> tasks = new List<TaskManager.TodoTask>();
+        private List<TodoTask> tasks = new List<TodoTask>();
         private int nextId = 1;
 
         public class TodoTask
@@ -19,15 +19,12 @@ namespace CalculatorApp
             public DateTime CreatedAt { get; set; }
             public DateTime? DueDate { get; set; }
             public int Priority { get; set; }
-
-            public override string ToString() => $"[{(IsCompleted ? "x" : " ")}] {Id}: {Title}";
         }
 
         public TodoTask AddTask(string title, string description = "", int priority = 3, DateTime? dueDate = null)
         {
             if (string.IsNullOrWhiteSpace(title))
                 throw new ArgumentException("Заголовок не может быть пустым");
-
             if (priority < 1 || priority > 5)
                 throw new ArgumentException("Приоритет должен быть от 1 до 5");
 
@@ -50,7 +47,6 @@ namespace CalculatorApp
         {
             var task = GetTask(id);
             if (task == null) return false;
-
             task.IsCompleted = true;
             return true;
         }
@@ -58,17 +54,12 @@ namespace CalculatorApp
         public bool DeleteTask(int id)
         {
             var task = GetTask(id);
-            if (task == null) return false;
-
-            return tasks.Remove(task);
+            return task != null && tasks.Remove(task);
         }
 
         public TodoTask GetTask(int id) => tasks.FirstOrDefault(t => t.Id == id);
-
         public List<TodoTask> GetAllTasks() => tasks.ToList();
-
         public List<TodoTask> GetPendingTasks() => tasks.Where(t => !t.IsCompleted).ToList();
-
         public List<TodoTask> GetCompletedTasks() => tasks.Where(t => t.IsCompleted).ToList();
 
         public List<TodoTask> GetTasksByPriority(int minPriority) =>
@@ -81,10 +72,8 @@ namespace CalculatorApp
         {
             if (newPriority < 1 || newPriority > 5)
                 throw new ArgumentException("Приоритет должен быть от 1 до 5");
-
             var task = GetTask(id);
             if (task == null) return false;
-
             task.Priority = newPriority;
             return true;
         }
@@ -118,7 +107,6 @@ namespace CalculatorApp
         {
             if (tasks == null || tasks.Count == 0)
                 throw new InvalidOperationException("Нет данных для расчета");
-
             return (double)tasks.Count(t => t.IsCompleted) / tasks.Count * 100;
         }
 
@@ -126,7 +114,6 @@ namespace CalculatorApp
         {
             if (tasks == null || tasks.Count == 0)
                 throw new InvalidOperationException("Нет данных для расчета");
-
             return tasks.Average(t => t.Priority);
         }
 
