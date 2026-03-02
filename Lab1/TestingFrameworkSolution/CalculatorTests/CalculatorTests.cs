@@ -54,12 +54,12 @@ namespace CalculatorTests
     }
 
     [Shared]
-    public class CalcTests
+    public class TaskManagerTests
     {
-        Calc calc;
+        TaskManager manager;
 
         [BeforeClass]
-        public void BeforeAll() { calc = new Calc(); }
+        public void BeforeAll() { manager = new TaskManager(); }
 
         [Before]
         public void Before() { }
@@ -71,114 +71,253 @@ namespace CalculatorTests
         public void AfterAll() { }
 
         [Test]
-        public void AddTest() { Check.Equal(5, calc.Add(2, 3)); }
-
-        [Test]
-        public void SubTest() { Check.Equal(3, calc.Sub(5, 2)); }
-
-        [Test]
-        public void MulTest() { Check.Equal(12, calc.Mul(3, 4)); }
-
-        [TestCase(Data = new object[] { 6, 2, 3 })]
-        [TestCase(Data = new object[] { 10, 2, 5 })]
-        [TestCase(Data = new object[] { 3, 2, 1.5 })]
-        public void DivTest(int a, int b, double exp)
+        public void AddTaskTest()
         {
-            Check.Equal(exp, calc.Div(a, b));
+            var task = manager.AddTask("Купить продукты", "Молоко, хлеб, яйца", 4);
+            Check.Equal("Купить продукты", task.Title);
+            Check.Equal("Молоко, хлеб, яйца", task.Description);
+            Check.Equal(4, task.Priority);
+            Check.False(task.IsCompleted);
+            Check.NotNull(task.CreatedAt);
         }
 
         [Test]
-        public void DivZeroTest()
+        public void CompleteTaskTest()
         {
-            try { calc.Div(5, 0); Check.True(false); }
-            catch { Check.True(true); }
+            var task = manager.AddTask("Написать отчет");
+            Check.True(manager.CompleteTask(task.Id));
+            Check.True(task.IsCompleted);
         }
 
         [Test]
-        public async Task AddAsyncTest()
+        public void DeleteTaskTest()
         {
-            Check.Equal(7, await calc.AddAsync(3, 4));
+            var task = manager.AddTask("Временная задача");
+            int initialCount = manager.TaskCount;
+
+            Check.True(manager.DeleteTask(task.Id));
+            Check.Equal(initialCount - 1, manager.TaskCount);
+            Check.False(manager.DeleteTask(999));
+        }
+
+        [TestCase(Data = new object[] { "", "Задача без заголовка" })]
+        [TestCase(Data = new object[] { "   ", "Задача из пробелов" })]
+        public void AddTaskInvalidTitleTest(string title, string description)
+        {
+            try
+            {
+                manager.AddTask(title, description);
+                Check.True(false);
+            }
+            catch (ArgumentException)
+            {
+                Check.True(true);
+            }
+        }
+
+        [TestCase(Data = new object[] { 0 })]
+        [TestCase(Data = new object[] { 6 })]
+        public void AddTaskInvalidPriorityTest(int priority)
+        {
+            try
+            {
+                manager.AddTask("Задача", "Описание", priority);
+                Check.True(false);
+            }
+            catch (ArgumentException)
+            {
+                Check.True(true);
+            }
+        }
+
+        [Test]
+        public void GetTasksByPriorityTest()
+        {
+            manager.AddTask("Низкий приоритет", priority: 1);
+            manager.AddTask("Средний приоритет", priority: 3);
+            manager.AddTask("Высокий приоритет", priority: 5);
+
+            var highPriorityTasks = manager.GetTasksByPriority(4);
+            Check.Equal(1, highPriorityTasks.Count);
+            Check.Equal("Высокий приоритет", highPriorityTasks[0].Title);
+        }
+
+        [Test]
+        public void UpdateTaskPriorityTest()
+        {
+            var task = manager.AddTask("Задача для обновления", priority: 2);
+            Check.True(manager.UpdateTaskPriority(task.Id, 5));
+            Check.Equal(5, task.Priority);
+
+            try
+            {
+                manager.UpdateTaskPriority(task.Id, 10);
+                Check.True(false);
+            }
+            catch (ArgumentException)
+            {
+                Check.True(true);
+            }
+        }
+
+        [Test]
+        public async Task AddTaskAsyncTest()
+        {
+            var task = await manager.AddTaskAsync("Асинхронная задача", "Сделать быстро", 5);
+            Check.Equal("Асинхронная задача", task.Title);
+            Check.Equal(5, task.Priority);
+        }
+
+        [Test]
+        public async Task SearchTasksAsyncTest()
+        {
+            manager.AddTask("Купить молоко");
+            manager.AddTask("Купить хлеб");
+            manager.AddTask("Позвонить маме");
+
+            var results = await manager.SearchTasksAsync("купить");
+            Check.Equal(2, results.Count);
+            Check.Contains("Купить молоко", results.Select(t => t.Title));
+            Check.Contains("Купить хлеб", results.Select(t => t.Title));
+        }
+
+        [Test]
+        public void OverdueTasksTest()
+        {
+            var pastDue = manager.AddTask("Просроченная задача", dueDate: DateTime.Now.AddDays(-2));
+            var futureDue = manager.AddTask("Будущая задача", dueDate: DateTime.Now.AddDays(5));
+
+            var overdue = manager.GetOverdueTasks();
+            Check.Contains(pastDue, overdue);
+            Check.False(overdue.Contains(futureDue));
         }
     }
-    public class DataTests
+
+    public class StatisticsTests
     {
-        Data data;
-
-        [Before]
-        public void Before() { data = new Data(); }
-
         [Test]
-        public void AddTest()
+        public void CompletionRateTest()
         {
-            data.Add(5); data.Add(10); data.Add(-3);
-            Check.Equal(3, data.Count);
-            Check.True(data.HasData);
+            var manager = new TaskManager();
+            manager.AddTask("Задача 1");
+            manager.AddTask("Задача 2");
+            manager.AddTask("Задача 3");
+
+            var task = manager.GetTask(1);
+            manager.CompleteTask(task.Id);
+
+            var tasks = manager.GetAllTasks();
+            double rate = Statistics.GetCompletionRate(tasks);
+            Check.Equal(33.33333, rate);
         }
 
         [Test]
-        public void AvgTest()
+        public void AveragePriorityTest()
         {
-            data.Add(10); data.Add(20); data.Add(30);
-            double avg = data.Avg();
-            if (Math.Abs(avg - 20) > 0.0001)
-                throw new Exception($"{avg} != 20");
+            var manager = new TaskManager();
+            manager.AddTask("Задача 1", priority: 1);
+            manager.AddTask("Задача 2", priority: 3);
+            manager.AddTask("Задача 3", priority: 5);
+
+            var tasks = manager.GetAllTasks();
+            double avg = Statistics.GetAveragePriority(tasks);
+            Check.Equal(3.0, avg);
         }
 
         [Test]
-        public void AvgEmptyTest()
+        public void PriorityDistributionTest()
         {
-            try { data.Avg(); Check.True(false); }
-            catch { Check.True(true); }
+            var manager = new TaskManager();
+            manager.AddTask("Задача 1", priority: 3);
+            manager.AddTask("Задача 2", priority: 3);
+            manager.AddTask("Задача 3", priority: 5);
+
+            var tasks = manager.GetAllTasks();
+            var distribution = Statistics.GetPriorityDistribution(tasks);
+
+            Check.Equal(2, distribution[3]);
+            Check.Equal(1, distribution[5]);
         }
 
         [Test]
-        public void ClearTest()
+        public void EmptyListStatisticsTest()
         {
-            data.Add(1); data.Add(2);
-            Check.True(data.HasData);
-            data.Clear();
-            Check.False(data.HasData);
-            Check.Equal(0, data.Count);
-        }
+            var emptyList = new System.Collections.Generic.List<TaskManager.TodoTask>();
 
-        [Test]
-        public void MaxMinTest()
-        {
-            data.Add(5); data.Add(15); data.Add(10);
-            Check.Equal(15, data.Max());
-            Check.Equal(5, data.Min());
+            try
+            {
+                Statistics.GetCompletionRate(emptyList);
+                Check.True(false);
+            }
+            catch (InvalidOperationException)
+            {
+                Check.True(true);
+            }
+
+            try
+            {
+                Statistics.GetAveragePriority(emptyList);
+                Check.True(false);
+            }
+            catch (InvalidOperationException)
+            {
+                Check.True(true);
+            }
         }
     }
 
-    public class UserTests
+    public class TaskFilterTests
     {
-        User user;
+        TaskManager manager;
 
         [Before]
-        public void Before() { user = new User(); }
-
-        [Test]
-        public async Task GetNameTest()
+        public void Before()
         {
-            Check.Equal("Иван", await user.GetName(1));
-            Check.Equal("Петр", await user.GetName(2));
-            Check.Equal("Мария", await user.GetName(3));
+            manager = new TaskManager();
+            manager.AddTask("Купить молоко");
+            manager.AddTask("Купить хлеб");
+            manager.AddTask("Позвонить врачу");
+
+            var task = manager.GetTask(1);
+            manager.CompleteTask(task.Id);
         }
 
         [Test]
-        public async Task GetNameBadTest()
+        public void GetPendingTasksTest()
         {
-            try { await user.GetName(999); Check.True(false); }
-            catch { Check.True(true); }
+            var pending = manager.GetPendingTasks();
+            Check.Equal(2, pending.Count);
+            Check.True(pending.All(t => !t.IsCompleted));
         }
 
-        [TestCase(Data = new object[] { 1, true })]
-        [TestCase(Data = new object[] { 2, true })]
-        [TestCase(Data = new object[] { 3, true })]
-        [TestCase(Data = new object[] { 99, false })]
-        public void ExistsTest(int id, bool exp)
+        [Test]
+        public void GetCompletedTasksTest()
         {
-            Check.Equal(exp, user.Exists(id));
+            var completed = manager.GetCompletedTasks();
+            Check.Equal(1, completed.Count);
+            Check.True(completed.All(t => t.IsCompleted));
+        }
+
+        [Test]
+        public void GetAllTasksTest()
+        {
+            var all = manager.GetAllTasks();
+            Check.Equal(3, all.Count);
+        }
+
+        [Test]
+        public void TaskCountsTest()
+        {
+            Check.Equal(3, manager.TaskCount);
+            Check.Equal(2, manager.PendingCount);
+            Check.Equal(1, manager.CompletedCount);
+        }
+
+        [Test]
+        public void GetNonExistentTaskTest()
+        {
+            var task = manager.GetTask(999);
+            Check.Null(task);
         }
     }
 }
