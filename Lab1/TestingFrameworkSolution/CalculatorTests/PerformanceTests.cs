@@ -10,7 +10,7 @@ namespace CalculatorTests
         public async Task SlowTest1() { await Task.Delay(1000); Check.True(true); }
 
         [Test]
-        public async Task SlowTest2() { await Task.Delay(1000); Check.True(true); }
+        public async Task SlowTest2() { await Task.Delay(10000); Check.True(true); }
 
         [Test]
         [Timeout(500)]

@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CalculatorTests\CalculatorTests.csproj" />
+    <ProjectReference Include="..\CustomThreadPool\CustomThreadPool.csproj" />
   </ItemGroup>
 
 </Project>

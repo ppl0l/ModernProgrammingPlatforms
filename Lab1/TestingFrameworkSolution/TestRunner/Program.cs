@@ -1,154 +1,112 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
 using System.Reflection;
 using System.Threading;
-using System.Threading.Tasks;
+using CustomThreadPoolLib;
 using TestingLibrary;
+using System.Linq;
 
 namespace TestRunner
 {
     class Program
     {
-        static async Task Main()
+        static void Main()
         {
-            int maxParallel = 4;
+            using var pool = new MyThreadPool(minThreads: 2, maxThreads: 10, idleTimeoutMs: 3000);
+            var runner = new NewRunner(pool);
+
+            Console.WriteLine("ЗАПУСК МОДЕЛИРОВАНИЯ НАГРУЗКИ");
+
+            Thread monitorThread = new Thread(() =>
+            {
+                while (true)
+                {
+                    Console.Title = $"Threads: {pool.CurrentThreadCount} | Queue: {pool.QueueLength}";
+                    pool.HealthCheck(5000);
+                    Thread.Sleep(1000);
+                }
+            })
+            { IsBackground = true };
+            monitorThread.Start();
+
             string dllPath = "CalculatorTests.dll";
 
-            Console.WriteLine("СРАВНЕНИЕ ЭФФЕКТИВНОСТИ");
+            Console.WriteLine("\nЭТАП 1: Единичные подачи");
+            for (int i = 0; i < 5; i++)
+            {
+                runner.EnqueueAllTests(dllPath);
+                Thread.Sleep(500);
+            }
 
-            var runner = new Runner();
+            Console.WriteLine("\nЭТАП 2: ПИКОВАЯ НАГРУЗКА (взрыв задач)");
+            for (int i = 0; i < 10; i++) runner.EnqueueAllTests(dllPath);
 
-            Console.WriteLine("\n[1] Запуск: ПОСЛЕДОВАТЕЛЬНО");
-            var sw = Stopwatch.StartNew();
-            await runner.RunAsync(dllPath, 1);
-            sw.Stop();
-            long seqTime = sw.ElapsedMilliseconds;
+            Console.WriteLine("\nЭТАП 3: Пауза (ожидаем сжатия пула)");
+            Thread.Sleep(5000);
 
-            Console.WriteLine($"\n[2] Запуск: ПАРАЛЛЕЛЬНО (MaxDegree = {maxParallel})");
-            sw.Restart();
-            await runner.RunAsync(dllPath, maxParallel);
-            sw.Stop();
-            long parTime = sw.ElapsedMilliseconds;
+            Console.WriteLine("\nЭТАП 4: Финальный залп");
+            for (int i = 0; i < 5; i++) runner.EnqueueAllTests(dllPath);
 
-            Console.WriteLine("\n" + new string('=', 30));
-            Console.WriteLine($"Последовательно: {seqTime} ms");
-            Console.WriteLine($"Параллельно:     {parTime} ms");
-            Console.WriteLine($"Ускорение:      {((double)seqTime / parTime):F2}x");
-            Console.WriteLine(new string('=', 30));
+            Console.WriteLine("\nНажмите Enter для завершения после выполнения всех тестов.");
+            Console.ReadLine();
         }
     }
 
-    public class Runner
+    public class NewRunner
     {
-        private readonly object _consoleLock = new object();
-        private int _total, _passed, _failed;
+        private readonly MyThreadPool _pool;
+        private int _total = 0;
 
-        public async Task RunAsync(string dllPath, int maxDegreeOfParallelism)
+        public NewRunner(MyThreadPool pool) => _pool = pool;
+
+        public void EnqueueAllTests(string dllPath)
         {
-            _total = 0; _passed = 0; _failed = 0;
             var asm = Assembly.LoadFrom(dllPath);
-
             var testClasses = asm.GetTypes()
                 .Where(t => t.GetMethods().Any(m => m.IsDefined(typeof(Test), false)))
                 .ToList();
 
-            using var semaphore = new SemaphoreSlim(maxDegreeOfParallelism);
-            var allTestTasks = new List<Task>();
-
             foreach (var type in testClasses)
             {
-                var methods = type.GetMethods();
-                var isShared = type.IsDefined(typeof(Shared), false);
-                object sharedObj = isShared ? Activator.CreateInstance(type) : null;
-
-                var beforeClass = methods.FirstOrDefault(m => m.IsDefined(typeof(BeforeClass), false));
-                beforeClass?.Invoke(sharedObj ?? Activator.CreateInstance(type), null);
-
-                var testMethods = methods.Where(m => m.IsDefined(typeof(Test), false)).ToList();
-
-                foreach (var method in testMethods)
+                var methods = type.GetMethods().Where(m => m.IsDefined(typeof(Test), false));
+                foreach (var m in methods)
                 {
-                    var cases = method.GetCustomAttributes<TestCase>().ToList();
-                    if (!cases.Any()) cases.Add(new TestCase { Data = null });
-
-                    foreach (var tc in cases)
-                    {
-                        await semaphore.WaitAsync();
-                        allTestTasks.Add(Task.Run(async () =>
-                        {
-                            try
-                            {
-                                object inst = sharedObj ?? Activator.CreateInstance(type);
-                                await ExecuteTest(method, tc.Data, inst, type);
-                            }
-                            finally
-                            {
-                                semaphore.Release();
-                            }
-                        }));
-                    }
+                    Interlocked.Increment(ref _total);
+                    _pool.Enqueue(() => ExecuteSingleTest(type, m));
                 }
-            }
-
-            await Task.WhenAll(allTestTasks);
-
-            lock (_consoleLock)
-            {
-                Console.WriteLine($"\nИтог: Всего: {_total}, ОК: {_passed}, Провалено: {_failed}");
             }
         }
 
-        private async Task ExecuteTest(MethodInfo m, object[] args, object instance, Type classType)
+        private void ExecuteSingleTest(Type type, MethodInfo m)
         {
-            Interlocked.Increment(ref _total);
-            string testName = $"{classType.Name}.{m.Name}" + (args != null ? $"({string.Join(",", args)})" : "");
-
-            var befores = classType.GetMethods().Where(meth => meth.IsDefined(typeof(Before), false)).ToList();
-            var afters = classType.GetMethods().Where(meth => meth.IsDefined(typeof(After), false)).ToList();
-            var timeoutAttr = m.GetCustomAttribute<TimeoutAttribute>();
-
             try
             {
-                foreach (var b in befores) b.Invoke(instance, null);
+                var instance = Activator.CreateInstance(type);
 
-                Task testTask = Task.Run(async () =>
-                {
-                    if (m.ReturnType == typeof(Task) || m.ReturnType.BaseType == typeof(Task))
-                        await (Task)m.Invoke(instance, args);
-                    else
-                        m.Invoke(instance, args);
-                });
+                var initMethods = type.GetMethods()
+                    .Where(meth => meth.IsDefined(typeof(BeforeClass), false) ||
+                                   meth.IsDefined(typeof(Before), false));
 
-                if (timeoutAttr != null)
+                foreach (var init in initMethods)
                 {
-                    if (await Task.WhenAny(testTask, Task.Delay(timeoutAttr.Milliseconds)) != testTask)
-                        throw new Exception($"Превышен лимит времени ({timeoutAttr.Milliseconds}ms)");
+                    init.Invoke(instance, null);
+                }
+
+                if (m.ReturnType == typeof(Task))
+                {
+                    ((Task)m.Invoke(instance, null)).Wait();
                 }
                 else
                 {
-                    await testTask;
+                    m.Invoke(instance, null);
                 }
 
-                foreach (var a in afters) a.Invoke(instance, null);
-
-                LogResult(testName, "OK");
-                Interlocked.Increment(ref _passed);
+                Console.WriteLine($"  [ID:{Thread.CurrentThread.ManagedThreadId:00}] {type.Name}.{m.Name} -> OK");
             }
             catch (Exception ex)
             {
-                Interlocked.Increment(ref _failed);
-                var msg = ex.InnerException?.Message ?? ex.Message;
-                LogResult(testName, $"ПРОВАЛ: {msg}");
-            }
-        }
-
-        private void LogResult(string name, string status)
-        {
-            lock (_consoleLock)
-            {
-                Console.WriteLine($"  [{Thread.CurrentThread.ManagedThreadId:00}] {name,-40} -> {status}");
+                var realException = ex.InnerException ?? ex;
+                Console.WriteLine($"  [ID:{Thread.CurrentThread.ManagedThreadId:00}] {type.Name}.{m.Name} -> FAIL: {realException.Message}");
             }
         }
     }
