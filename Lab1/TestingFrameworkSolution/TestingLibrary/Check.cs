@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Expressions;
 
 namespace TestingLibrary
 {
@@ -41,6 +42,54 @@ namespace TestingLibrary
         {
             if (!list.Contains(item))
                 throw new Exception("нет в списке");
+        }
+        public static void That(Expression<Func<bool>> expr)
+        {
+            var func = expr.Compile();
+            if (!func())
+            {
+                string detail = ParseExpression(expr.Body);
+                throw new Exception($"Провал выражения: {detail}");
+            }
+        }
+
+        private static string ParseExpression(Expression body)
+        {
+            if (body is BinaryExpression bin)
+            {
+                var leftVal = Expression.Lambda(bin.Left).Compile().DynamicInvoke();
+                var rightVal = Expression.Lambda(bin.Right).Compile().DynamicInvoke();
+
+                string leftName = GetFriendlyName(bin.Left);
+                string rightName = GetFriendlyName(bin.Right);
+                string op = GetOperatorSymbol(bin.NodeType);
+
+                return $"{leftName}({leftVal}) {op} {rightName}({rightVal})";
+            }
+            return body.ToString();
+        }
+
+        private static string GetFriendlyName(Expression expr)
+        {
+            if (expr is MemberExpression mem)
+                return mem.Member.Name;
+            if (expr is ConstantExpression con)
+                return con.Value.ToString();
+            return expr.ToString();
+        }
+
+        private static string GetOperatorSymbol(ExpressionType type)
+        {
+            return type switch
+            {
+                ExpressionType.Equal => "==",
+                ExpressionType.NotEqual => "!=",
+                ExpressionType.GreaterThan => ">",
+                ExpressionType.LessThan => "<",
+                ExpressionType.GreaterThanOrEqual => ">=",
+                ExpressionType.LessThanOrEqual => "<=",
+                _ => type.ToString()
+            };
         }
     }
 }

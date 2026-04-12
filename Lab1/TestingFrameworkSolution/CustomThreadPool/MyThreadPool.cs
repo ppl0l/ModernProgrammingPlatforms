@@ -1,10 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading;
-using System.Diagnostics;
 
 namespace CustomThreadPoolLib
 {
+    public class PoolEventArgs : EventArgs
+    {
+        public string Message { get; set; }
+        public int ThreadCount { get; set; }
+        public int QueueLength { get; set; }
+    }
+
     public class MyThreadPool : IDisposable
     {
         private readonly Queue<Action> _taskQueue = new Queue<Action>();
@@ -13,8 +19,10 @@ namespace CustomThreadPoolLib
         private readonly int _maxThreads;
         private readonly int _idleTimeoutMs;
         private bool _stop;
-
         private readonly object _lock = new object();
+
+        public event EventHandler<PoolEventArgs> OnPoolChanged;
+        public event EventHandler<PoolEventArgs> OnTaskStarted;
 
         public int CurrentThreadCount => _workers.Count;
         public int QueueLength => _taskQueue.Count;
@@ -25,10 +33,12 @@ namespace CustomThreadPoolLib
             _maxThreads = maxThreads;
             _idleTimeoutMs = idleTimeoutMs;
 
-            for (int i = 0; i < _minThreads; i++)
-            {
-                CreateWorker();
-            }
+            for (int i = 0; i < _minThreads; i++) CreateWorker();
+        }
+
+        private void RaiseEvent(EventHandler<PoolEventArgs> handler, string msg)
+        {
+            handler?.Invoke(this, new PoolEventArgs { Message = msg, ThreadCount = _workers.Count, QueueLength = _taskQueue.Count });
         }
 
         public void Enqueue(Action task)
@@ -41,7 +51,7 @@ namespace CustomThreadPoolLib
                 if (_taskQueue.Count > 0 && _workers.Count < _maxThreads)
                 {
                     CreateWorker();
-                    Console.WriteLine($"[Pool] Масштабирование UP: {_workers.Count} потоков");
+                    RaiseEvent(OnPoolChanged, "Масштабирование UP");
                 }
             }
         }
@@ -85,22 +95,21 @@ namespace CustomThreadPoolLib
                                     if (_pool._workers.Count > _pool._minThreads)
                                     {
                                         _pool._workers.Remove(this);
-                                        Console.WriteLine($"[Pool] Сжатие DOWN: {_pool._workers.Count} потоков");
+                                        _pool.RaiseEvent(_pool.OnPoolChanged, "Сжатие DOWN");
                                         return;
                                     }
                                 }
                             }
-
                             if (_pool._stop) return;
-                            if (_pool._taskQueue.Count > 0)
-                                task = _pool._taskQueue.Dequeue();
+                            if (_pool._taskQueue.Count > 0) task = _pool._taskQueue.Dequeue();
                         }
 
                         if (task != null)
                         {
                             IsRunningTask = true;
+                            _pool.RaiseEvent(_pool.OnTaskStarted, "Задача запущена");
                             try { task(); }
-                            catch (Exception ex) { Console.WriteLine($"[Error] Ошибка в потоке: {ex.Message}"); }
+                            catch { }
                             finally
                             {
                                 IsRunningTask = false;
@@ -124,10 +133,10 @@ namespace CustomThreadPoolLib
                 {
                     if (_workers[i].IsStuck(hangTimeoutMs))
                     {
-                        Console.WriteLine("[Pool] Обнаружен зависший поток! Замена.");
                         _workers[i].ForceStop();
                         _workers.RemoveAt(i);
                         CreateWorker();
+                        RaiseEvent(OnPoolChanged, "Замена зависшего потока");
                     }
                 }
             }

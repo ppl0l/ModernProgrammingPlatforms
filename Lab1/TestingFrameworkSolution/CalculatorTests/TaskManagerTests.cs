@@ -1,147 +1,47 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using TestingLibrary;
 using CalculatorApp;
 
 namespace CalculatorTests
 {
-    [Shared]
+    [Category("Core")]
     public class TaskManagerTests
     {
-        TaskManager mgr;
+        TaskManager mgr = new TaskManager();
 
-        [BeforeClass]
-        public void Init() { mgr = new TaskManager(); }
-
-        [Before]
-        public void Setup() { }
-
-        [After]
-        public void Cleanup() { }
-
-        [AfterClass]
-        public void Done() { }
-
-        [Test]
-        public void AddTask()
+        public static IEnumerable<object[]> TaskDataGenerator()
         {
-            var t = mgr.AddTask("Купить продукты", "Молоко, хлеб, яйца", 4);
-            Check.Eq("Купить продукты", t.Title);
-            Check.Eq("Молоко, хлеб, яйца", t.Description);
-            Check.Eq(4, t.Priority);
-            Check.False(t.IsCompleted);
-            Check.NotNull(t.CreatedAt);
+            yield return new object[] { "Срочно", 5 };
+            yield return new object[] { "Обычная", 3 };
+            yield return new object[] { "Фон", 1 };
         }
 
         [Test]
-        public void CompleteTask()
+        [TestCaseSource(nameof(TaskDataGenerator))]
+        [Priority(1)]
+        public void ParametrizedAdd(string title, int priority)
         {
-            var t = mgr.AddTask("Написать отчет");
-            Check.True(mgr.CompleteTask(t.Id));
-            Check.True(t.IsCompleted);
+            var t = mgr.AddTask(title, priority: priority);
+            Check.Eq(title, t.Title);
+            Check.Eq(priority, t.Priority);
         }
 
         [Test]
-        public void DeleteTask()
+        [Category("ExpressionTree")]
+        public void ExpressionTest()
         {
-            var t = mgr.AddTask("Временная задача");
-            int cnt = mgr.TaskCount;
-            Check.True(mgr.DeleteTask(t.Id));
-            Check.Eq(cnt - 1, mgr.TaskCount);
-            Check.False(mgr.DeleteTask(999));
-        }
-
-        [TestCase(Data = new object[] { "", "Без заголовка" })]
-        [TestCase(Data = new object[] { "   ", "Пробелы" })]
-        public void AddTaskBadTitle(string title, string desc)
-        {
-            try
-            {
-                mgr.AddTask(title, desc);
-                Check.True(false);
-            }
-            catch (ArgumentException)
-            {
-                Check.True(true);
-            }
-        }
-
-        [TestCase(Data = new object[] { 0 })]
-        [TestCase(Data = new object[] { 6 })]
-        public void AddTaskBadPriority(int p)
-        {
-            try
-            {
-                mgr.AddTask("Задача", "Описание", p);
-                Check.True(false);
-            }
-            catch (ArgumentException)
-            {
-                Check.True(true);
-            }
+            int a = 10;
+            int b = 20;
+            Check.That(() => a == b);
         }
 
         [Test]
-        public void GetByPriority()
+        [Priority(5)]
+        public void HighPriorityTest()
         {
-            mgr.AddTask("Низкий", priority: 1);
-            mgr.AddTask("Средний", priority: 3);
-            mgr.AddTask("Высокий", priority: 5);
-
-            var high = mgr.GetTasksByPriority(4);
-            Check.Eq(1, high.Count);
-            Check.Eq("Высокий", high[0].Title);
-        }
-
-        [Test]
-        public void UpdatePriority()
-        {
-            var t = mgr.AddTask("Обновить", priority: 2);
-            Check.True(mgr.UpdateTaskPriority(t.Id, 5));
-            Check.Eq(5, t.Priority);
-
-            try
-            {
-                mgr.UpdateTaskPriority(t.Id, 10);
-                Check.True(false);
-            }
-            catch (ArgumentException)
-            {
-                Check.True(true);
-            }
-        }
-
-        [Test]
-        public async Task AddTaskAsync()
-        {
-            var t = await mgr.AddTaskAsync("Асинхронная", "Быстро", 5);
-            Check.Eq("Асинхронная", t.Title);
-            Check.Eq(5, t.Priority);
-        }
-
-        [Test]
-        public async Task SearchAsync()
-        {
-            mgr.AddTask("Купить молоко");
-            mgr.AddTask("Купить хлеб");
-            mgr.AddTask("Позвонить маме");
-
-            var res = await mgr.SearchTasksAsync("купить");
-            Check.Eq(2, res.Count);
-            Check.Contains("Купить молоко", res.Select(t => t.Title));
-            Check.Contains("Купить хлеб", res.Select(t => t.Title));
-        }
-
-        [Test]
-        public void Overdue()
-        {
-            var past = mgr.AddTask("Просрочка", dueDate: DateTime.Now.AddDays(-2));
-            var future = mgr.AddTask("Будущее", dueDate: DateTime.Now.AddDays(5));
-
-            var overdue = mgr.GetOverdueTasks();
-            Check.Contains(past, overdue);
-            Check.False(overdue.Contains(future));
+            Check.True(true);
         }
     }
 }

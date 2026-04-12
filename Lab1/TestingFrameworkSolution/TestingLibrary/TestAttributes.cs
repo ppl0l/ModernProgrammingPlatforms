@@ -32,4 +32,25 @@ namespace TestingLibrary
         public int Milliseconds { get; }
         public TimeoutAttribute(int ms) => Milliseconds = ms;
     }
+
+    [AttributeUsage(AttributeTargets.Method)]
+    public class TestCaseSource : Attribute
+    {
+        public string MethodName { get; }
+        public TestCaseSource(string methodName) => MethodName = methodName;
+    }
+
+    [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
+    public class Category : Attribute
+    {
+        public string Name { get; }
+        public Category(string name) => Name = name;
+    }
+
+    [AttributeUsage(AttributeTargets.Method)]
+    public class Priority : Attribute
+    {
+        public int Level { get; }
+        public Priority(int level) => Level = level;
+    }
 }

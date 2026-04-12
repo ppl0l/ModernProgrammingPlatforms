@@ -2,9 +2,9 @@
 using System.Collections.Generic;
 using System.Reflection;
 using System.Threading;
+using System.Linq;
 using CustomThreadPoolLib;
 using TestingLibrary;
-using System.Linq;
 
 namespace TestRunner
 {
@@ -12,42 +12,28 @@ namespace TestRunner
     {
         static void Main()
         {
-            using var pool = new MyThreadPool(minThreads: 2, maxThreads: 10, idleTimeoutMs: 3000);
+            using var pool = new MyThreadPool(2, 5);
+
+            pool.OnPoolChanged += (s, e) => Console.WriteLine($"[POOL_EVENT] {e.Message}. Потоков: {e.ThreadCount}");
+            pool.OnTaskStarted += (s, e) => Console.WriteLine($"[TASK_EVENT] {e.Message}. В очереди: {e.QueueLength}");
+
             var runner = new NewRunner(pool);
+            string dll = "CalculatorTests.dll";
 
-            Console.WriteLine("ЗАПУСК МОДЕЛИРОВАНИЯ НАГРУЗКИ");
+            Console.WriteLine("ЗАПУСК ВСЕХ ВЫСОКОПРИОРИТЕТНЫХ ТЕСТОВ (Priority > 3)");
+            runner.EnqueueFiltered(dll, m => {
+                var attr = m.GetCustomAttribute<Priority>();
+                return attr != null && attr.Level > 3;
+            });
 
-            Thread monitorThread = new Thread(() =>
-            {
-                while (true)
-                {
-                    Console.Title = $"Threads: {pool.CurrentThreadCount} | Queue: {pool.QueueLength}";
-                    pool.HealthCheck(5000);
-                    Thread.Sleep(1000);
-                }
-            })
-            { IsBackground = true };
-            monitorThread.Start();
+            Thread.Sleep(2000);
 
-            string dllPath = "CalculatorTests.dll";
+            Console.WriteLine("\nЗАПУСК ТЕСТОВ КАТЕГОРИИ 'ExpressionTree'");
+            runner.EnqueueFiltered(dll, m => {
+                var attr = m.GetCustomAttribute<Category>() ?? m.DeclaringType.GetCustomAttribute<Category>();
+                return attr?.Name == "ExpressionTree";
+            });
 
-            Console.WriteLine("\nЭТАП 1: Единичные подачи");
-            for (int i = 0; i < 5; i++)
-            {
-                runner.EnqueueAllTests(dllPath);
-                Thread.Sleep(500);
-            }
-
-            Console.WriteLine("\nЭТАП 2: ПИКОВАЯ НАГРУЗКА (взрыв задач)");
-            for (int i = 0; i < 10; i++) runner.EnqueueAllTests(dllPath);
-
-            Console.WriteLine("\nЭТАП 3: Пауза (ожидаем сжатия пула)");
-            Thread.Sleep(5000);
-
-            Console.WriteLine("\nЭТАП 4: Финальный залп");
-            for (int i = 0; i < 5; i++) runner.EnqueueAllTests(dllPath);
-
-            Console.WriteLine("\nНажмите Enter для завершения после выполнения всех тестов.");
             Console.ReadLine();
         }
     }
@@ -55,58 +41,47 @@ namespace TestRunner
     public class NewRunner
     {
         private readonly MyThreadPool _pool;
-        private int _total = 0;
-
         public NewRunner(MyThreadPool pool) => _pool = pool;
 
-        public void EnqueueAllTests(string dllPath)
+        public void EnqueueFiltered(string dllPath, Func<MethodInfo, bool> filter)
         {
             var asm = Assembly.LoadFrom(dllPath);
-            var testClasses = asm.GetTypes()
-                .Where(t => t.GetMethods().Any(m => m.IsDefined(typeof(Test), false)))
-                .ToList();
+            var types = asm.GetTypes().Where(t => t.GetMethods().Any(m => m.IsDefined(typeof(Test), false)));
 
-            foreach (var type in testClasses)
+            foreach (var type in types)
             {
-                var methods = type.GetMethods().Where(m => m.IsDefined(typeof(Test), false));
+                var methods = type.GetMethods().Where(m => m.IsDefined(typeof(Test), false) && filter(m));
                 foreach (var m in methods)
                 {
-                    Interlocked.Increment(ref _total);
-                    _pool.Enqueue(() => ExecuteSingleTest(type, m));
+                    var sourceAttr = m.GetCustomAttribute<TestCaseSource>();
+                    if (sourceAttr != null)
+                    {
+                        var sourceMethod = type.GetMethod(sourceAttr.MethodName, BindingFlags.Public | BindingFlags.Static);
+                        var data = (IEnumerable<object[]>)sourceMethod.Invoke(null, null);
+                        foreach (var @params in data)
+                        {
+                            _pool.Enqueue(() => ExecuteTest(type, m, @params));
+                        }
+                    }
+                    else
+                    {
+                        _pool.Enqueue(() => ExecuteTest(type, m, null));
+                    }
                 }
             }
         }
 
-        private void ExecuteSingleTest(Type type, MethodInfo m)
+        private void ExecuteTest(Type type, MethodInfo m, object[] args)
         {
             try
             {
                 var instance = Activator.CreateInstance(type);
-
-                var initMethods = type.GetMethods()
-                    .Where(meth => meth.IsDefined(typeof(BeforeClass), false) ||
-                                   meth.IsDefined(typeof(Before), false));
-
-                foreach (var init in initMethods)
-                {
-                    init.Invoke(instance, null);
-                }
-
-                if (m.ReturnType == typeof(Task))
-                {
-                    ((Task)m.Invoke(instance, null)).Wait();
-                }
-                else
-                {
-                    m.Invoke(instance, null);
-                }
-
-                Console.WriteLine($"  [ID:{Thread.CurrentThread.ManagedThreadId:00}] {type.Name}.{m.Name} -> OK");
+                m.Invoke(instance, args);
+                Console.WriteLine($"[OK] {type.Name}.{m.Name}({string.Join(",", args ?? new object[0])})");
             }
             catch (Exception ex)
             {
-                var realException = ex.InnerException ?? ex;
-                Console.WriteLine($"  [ID:{Thread.CurrentThread.ManagedThreadId:00}] {type.Name}.{m.Name} -> FAIL: {realException.Message}");
+                Console.WriteLine($"[FAIL] {type.Name}.{m.Name}: {ex.InnerException?.Message ?? ex.Message}");
             }
         }
     }
