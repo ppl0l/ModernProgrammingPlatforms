@@ -1,3 +1,67 @@
-Ðàçðàáîò÷èê: Çàêðåâñêàÿ Ïîëèíà Þðüåâíà, ãðóïïà 351002
+# Modern Programming Platforms â€” Lab 1 ðŸ§ª
 
-Ëàáîðàòîðíûå ðàáîòû ïî ïðåäìåòó "Ñîâðåìåííûå ïëàòôîðìû ïðîãðàììèðîâàíèÿ".
+A custom **testing framework** built from scratch in **C# / .NET**, including a **Test Runner**, a **custom Thread Pool**, and an application under test (`TaskManager`).
+
+> **Developer:** Zekrevskaya Polina Yuryevna, Group 351002
+> **Course:** Modern Programming Platforms
+
+## ðŸ“‹ About
+
+Laboratory Work #1 â€” implementation of a miniature testing framework (like NUnit) without third-party libraries. Demonstrates attributes, reflection, expression trees, and multithreading.
+
+### Features
+- Custom attributes: `[Test]`, `[Before]`, `[TestCaseSource]`, `[Category]`, `[Priority]`, `[Timeout]`.
+- `Check` assertions with **expression-tree failure messages**.
+- Custom **Thread Pool** with dynamic scaling, idle reaping, and health checks.
+- **Test Runner** that loads assemblies via reflection and filters tests by priority/category.
+- Async test support.
+
+## ðŸ›  Technologies
+- C# / .NET, WPF-compatible runtime
+- System.Reflection, System.Linq.Expressions, System.Threading
+
+## ðŸ“‚ Structure
+```text
+Lab1/TestingFrameworkSolution/
+â”œâ”€â”€ CalculatorApp/         # App under test (TaskManager, Statistics)
+â”œâ”€â”€ CalculatorTests/       # Tests for the app
+â”œâ”€â”€ CustomThreadPool/      # Custom MyThreadPool
+â”œâ”€â”€ TestRunner/            # Console app to run tests
+â”œâ”€â”€ TestingLibrary/        # Attributes + Check assertions
+â””â”€â”€ TestingFrameworkSolution.sln
+```
+
+## ðŸš€ Installation and Setup
+
+1. **Clone:**
+   ```bash
+   git clone https://github.com/your-username/ModernProgrammingPlatforms.git
+   cd ModernProgrammingPlatforms
+   ```
+
+2. **Open** `Lab1/TestingFrameworkSolution/TestingFrameworkSolution.sln` in Visual Studio 2022.
+
+3. **Build:** `Ctrl + Shift + B`.
+
+4. **Run tests:**
+   - Set `TestRunner` as startup project â†’ press `F5`
+   - Or CLI:
+     ```bash
+     cd Lab1/TestingFrameworkSolution/TestRunner
+     dotnet run
+     ```
+
+5. **Filter tests** in `Program.cs` by priority (`Priority > 3`) or category (`ExpressionTree`).
+
+## âœ¨ Implementation Details
+
+- **TestingLibrary** â€” attributes + `Check` class with `Eq`, `True`, `Null`, `That(() => expr)`.
+- **CustomThreadPool** â€” dynamic min/max threads, `HealthCheck` for stuck workers, events `OnPoolChanged` / `OnTaskStarted`, `IDisposable` shutdown.
+- **TestRunner** â€” loads DLLs via `Assembly.LoadFrom`, filters by attributes, enqueues into the pool.
+- **CalculatorApp** â€” `TaskManager` (CRUD + async) and `Statistics` (rate, average priority, distribution).
+
+## ðŸ“ž Contacts
+- **Repo:** [github.com/ppl0l/ModernProgrammingPlatforms](https://github.com/ppl0l/ModernProgrammingPlatforms)
+
+---
+*Laboratory work for the "Modern Programming Platforms" course.*
