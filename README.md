@@ -2,7 +2,6 @@
 
 A custom **testing framework** built from scratch in **C# / .NET**, including a **Test Runner**, a **custom Thread Pool**, and an application under test (`TaskManager`).
 
-> **Developer:** Zekrevskaya Polina Yuryevna, Group 351002
 > **Course:** Modern Programming Platforms
 
 ## 📋 About
